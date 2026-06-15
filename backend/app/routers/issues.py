@@ -1,5 +1,7 @@
 from typing import List, Optional
 
+from sqlalchemy import or_
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
@@ -69,7 +71,7 @@ def list_issues(
 
     total = query.count()
 
-    skip = page * page_size  # BUG: should be (page - 1) * page_size
+    skip = (page - 1) * page_size
     items = query.order_by(models.Issue.created_at.desc()).offset(skip).limit(page_size).all()
 
     return schemas.PaginatedIssues(total=total, page=page, page_size=page_size, items=items)
@@ -146,13 +148,6 @@ async def update_issue(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    # BUG: Missing authorization check. Any authenticated user who has access
-    # to the project can update any issue, regardless of whether they are the
-    # reporter or assignee. Add a check like:
-    #
-    #   if issue.reporter_id != current_user.id and issue.assignee_id != current_user.id:
-    #       raise HTTPException(status_code=403, detail="Not authorized to edit this issue")
-
     _get_project_or_404(project_id, db, current_user.id)
     issue = (
         db.query(models.Issue)
@@ -161,6 +156,9 @@ async def update_issue(
     )
     if not issue:
         raise HTTPException(status_code=404, detail="Issue not found")
+
+    if issue.reporter_id != current_user.id and issue.assignee_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to edit this issue")
 
     old_status = issue.status
     for field, value in issue_in.model_dump(exclude_unset=True).items():
