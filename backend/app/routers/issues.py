@@ -1,6 +1,7 @@
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app import models, schemas
@@ -81,37 +82,31 @@ def list_issues(
 @router.get("/search", response_model=List[schemas.IssueOut])
 def search_issues(
     project_id: int,
-    q: str = Query(..., min_length=1, description="Search query"),
+    q: str = Query(..., min_length=1, max_length=200, description="Search query"),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    """
-    TODO: Implement full-text search across issue title and description.
-
-    The query parameter `q` should match issues where the title OR description
-    contains the search string (case-insensitive). Consider also supporting
-    ordering results by relevance.
-
-    For now, returns 501 Not Implemented.
-    """
+    """Search issues in a project by title or description (case-insensitive)."""
     _get_project_or_404(project_id, db, current_user.id)
 
-    # TODO: replace with real search logic, e.g.:
-    # results = (
-    #     db.query(models.Issue)
-    #     .filter(
-    #         models.Issue.project_id == project_id,
-    #         or_(
-    #             models.Issue.title.ilike(f"%{q}%"),
-    #             models.Issue.description.ilike(f"%{q}%"),
-    #         ),
-    #     )
-    #     .order_by(models.Issue.updated_at.desc())
-    #     .all()
-    # )
-    # return results
+    def _escape_like(s: str) -> str:
+        return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
-    raise HTTPException(status_code=501, detail="Search not yet implemented")
+    pattern = f"%{_escape_like(q)}%"
+    results = (
+        db.query(models.Issue)
+        .filter(
+            models.Issue.project_id == project_id,
+            or_(
+                models.Issue.title.ilike(pattern, escape="\\"),
+                models.Issue.description.ilike(pattern, escape="\\"),
+            ),
+        )
+        .order_by(models.Issue.updated_at.desc())
+        .limit(100)
+        .all()
+    )
+    return results
 
 
 # ── Get one ───────────────────────────────────────────────────────────────────
