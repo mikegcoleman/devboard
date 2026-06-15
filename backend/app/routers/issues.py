@@ -1,7 +1,5 @@
 from typing import List, Optional
 
-from sqlalchemy import or_
-
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
@@ -148,7 +146,7 @@ async def update_issue(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    _get_project_or_404(project_id, db, current_user.id)
+    project = _get_project_or_404(project_id, db, current_user.id)
     issue = (
         db.query(models.Issue)
         .filter(models.Issue.id == issue_id, models.Issue.project_id == project_id)
@@ -157,7 +155,11 @@ async def update_issue(
     if not issue:
         raise HTTPException(status_code=404, detail="Issue not found")
 
-    if issue.reporter_id != current_user.id and issue.assignee_id != current_user.id:
+    if (
+        issue.reporter_id != current_user.id
+        and issue.assignee_id != current_user.id
+        and current_user.id != project.owner_id
+    ):
         raise HTTPException(status_code=403, detail="Not authorized to edit this issue")
 
     old_status = issue.status
