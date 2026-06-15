@@ -27,7 +27,7 @@ pytest tests/ -v
 
 ## Known bugs and unfinished features
 
-This codebase contains **five intentional defects** — a mix of bugs with failing tests and unimplemented stubs. They're designed as exercises for AI coding agents: point an agent at this repo, ask it to find and fix the issues, and review the resulting PRs.
+This codebase contains **four intentional defects** — a mix of bugs with failing tests and unimplemented stubs. They're designed as exercises for AI coding agents: point an agent at this repo, ask it to find and fix the issues, and review the resulting PRs.
 
 ---
 
@@ -80,17 +80,7 @@ if issue.reporter_id != current_user.id and issue.assignee_id != current_user.id
 
 ---
 
-### Bug 4 — Search endpoint not implemented
-
-**File**: `backend/app/routers/issues.py`, lines 81–114
-
-`GET /projects/{id}/issues/search?q=<query>` always returns `501 Not Implemented`. The route exists and is wired up, but the query logic is missing. The endpoint should return all issues in the project where the title or description contains the search string (case-insensitive).
-
-A commented-out skeleton of the correct implementation is already in the file — it just needs to be uncommented and the `raise HTTPException(status_code=501, ...)` line removed.
-
----
-
-### Bug 5 — Email notifications are stubs
+### Bug 4 — Email notifications are stubs
 
 **File**: `backend/app/services/notifications.py`
 
@@ -119,10 +109,10 @@ devboard/
 │   │   ├── routers/
 │   │   │   ├── auth.py          # /auth/register, /auth/login, /auth/me
 │   │   │   ├── projects.py      # /projects CRUD
-│   │   │   ├── issues.py        # /projects/{id}/issues CRUD + search  ← bugs 1, 3, 4
+│   │   │   ├── issues.py        # /projects/{id}/issues CRUD + search  ← bugs 1, 3
 │   │   │   └── comments.py      # /projects/{id}/issues/{id}/comments CRUD
 │   │   └── services/
-│   │       └── notifications.py # Stub email service                    ← bug 5
+│   │       └── notifications.py # Stub email service                    ← bug 4
 │   └── tests/
 │       ├── conftest.py          # SQLite test DB, fixtures
 │       ├── test_auth.py

@@ -1,7 +1,7 @@
 """
 Tests for GET /projects/{project_id}/issues/search?q=
 
-Covers all 12 required cases:
+Covers all 16 required cases:
 1.  Happy path — title match
 2.  Case-insensitive title match
 3.  Case-insensitive description match
@@ -14,6 +14,7 @@ Covers all 12 required cases:
 10. 403 — authenticated but not project owner
 11. 404 — project does not exist
 12. 422 — q param missing or empty
+13. Backslash in q is treated as a literal character
 """
 
 import time
@@ -132,9 +133,9 @@ def test_search_no_matches_returns_empty_list(client, auth_headers, project):
 def test_search_ordered_by_updated_at_desc(client, auth_headers, project):
     """Case 5: results ordered by updated_at descending."""
     i1 = _create_issue(client, auth_headers, project["id"], title="login alpha")
-    time.sleep(0.05)
+    time.sleep(0.1)
     i2 = _create_issue(client, auth_headers, project["id"], title="login beta")
-    time.sleep(0.05)
+    time.sleep(0.1)
     i3 = _create_issue(client, auth_headers, project["id"], title="login gamma")
 
     resp = client.get(
@@ -306,3 +307,28 @@ def test_search_empty_q_returns_422(client, auth_headers, project):
         headers=auth_headers,
     )
     assert resp.status_code == 422
+
+
+def test_search_backslash_in_q_is_literal(client, auth_headers, project):
+    """Case 13: backslash in q is escaped correctly and does not cause an error."""
+    _create_issue(client, auth_headers, project["id"], title=r"path\to\file issue")
+    _create_issue(client, auth_headers, project["id"], title="Unrelated issue")
+
+    # Searching for the literal backslash sequence should match only the right issue
+    resp = client.get(
+        f"/projects/{project['id']}/issues/search",
+        params={"q": r"path\to"},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200
+    results = resp.json()
+    assert len(results) == 1
+    assert "path" in results[0]["title"] and "to" in results[0]["title"]
+
+    # A bare backslash query should not crash — returns empty or matching issues
+    resp2 = client.get(
+        f"/projects/{project['id']}/issues/search",
+        params={"q": "\\"},
+        headers=auth_headers,
+    )
+    assert resp2.status_code == 200

@@ -21,6 +21,11 @@ def _get_project_or_404(project_id: int, db: Session, user_id: int) -> models.Pr
     return project
 
 
+def _escape_like(s: str) -> str:
+    """Escape LIKE special characters so user input is treated as literals."""
+    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 # ── Create ────────────────────────────────────────────────────────────────────
 
 
@@ -88,9 +93,6 @@ def search_issues(
 ):
     """Search issues in a project by title or description (case-insensitive)."""
     _get_project_or_404(project_id, db, current_user.id)
-
-    def _escape_like(s: str) -> str:
-        return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
     pattern = f"%{_escape_like(q)}%"
     results = (
