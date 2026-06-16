@@ -9,14 +9,30 @@ Run these tests with:  pytest tests/test_issues.py -v
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 
-def _create_issue(client, auth_headers, project_id, title="Bug: login fails", priority="high"):
+def _create_issue(client, auth_headers, project_id, title="Bug: login fails", priority="high", description="Steps to reproduce..."):
     resp = client.post(
         f"/projects/{project_id}/issues/",
-        json={"title": title, "description": "Steps to reproduce...", "priority": priority},
+        json={"title": title, "description": description, "priority": priority},
         headers=auth_headers,
     )
     assert resp.status_code == 201
     return resp.json()
+
+
+def _register_and_login(client, email, username, password="secret123"):
+    """Register a new user and return their auth headers."""
+    resp = client.post(
+        "/auth/register",
+        json={"email": email, "username": username, "password": password},
+    )
+    assert resp.status_code == 201
+    resp = client.post(
+        "/auth/login",
+        data={"username": username, "password": password},
+    )
+    assert resp.status_code == 200
+    token = resp.json()["access_token"]
+    return {"Authorization": f"Bearer {token}"}
 
 
 # ── Basic CRUD ────────────────────────────────────────────────────────────────
@@ -126,27 +142,11 @@ def test_pagination_second_page(client, auth_headers, project):
     )
 
 
-# ── Search (not yet implemented) ──────────────────────────────────────────────
-
-
-def test_search_returns_501_until_implemented(client, auth_headers, project):
-    """Search endpoint should return 501 until the TODO is completed."""
-    resp = client.get(
-        f"/projects/{project['id']}/issues/search",
-        params={"q": "login"},
-        headers=auth_headers,
-    )
-    assert resp.status_code == 501
+# ── Search ────────────────────────────────────────────────────────────────────
 
 
 def test_search_finds_matching_issues(client, auth_headers, project):
-    """
-    TODO TEST: Once search is implemented, this should pass.
-
-    After completing the TODO in issues.py, the search endpoint should
-    return issues whose title or description contains the query string.
-    This test will FAIL until the TODO is implemented.
-    """
+    """Search returns issues whose title contains the query string."""
     _create_issue(client, auth_headers, project["id"], title="Login page crashes on Safari")
     _create_issue(client, auth_headers, project["id"], title="Dashboard layout broken")
 
@@ -155,16 +155,165 @@ def test_search_finds_matching_issues(client, auth_headers, project):
         params={"q": "login"},
         headers=auth_headers,
     )
-    # Will return 501 until implemented — change to assert resp.status_code == 200
-    # after completing the TODO.
-    if resp.status_code == 501:
-        import pytest
-        pytest.skip("Search not yet implemented — complete the TODO first")
-
     assert resp.status_code == 200
     results = resp.json()
     assert len(results) == 1
     assert results[0]["title"] == "Login page crashes on Safari"
+
+
+def test_search_case_insensitive(client, auth_headers, project):
+    """Search is case-insensitive: q=LOGIN finds 'Login page crashes on Safari'."""
+    _create_issue(client, auth_headers, project["id"], title="Login page crashes on Safari")
+    _create_issue(client, auth_headers, project["id"], title="Dashboard layout broken")
+
+    resp = client.get(
+        f"/projects/{project['id']}/issues/search",
+        params={"q": "LOGIN"},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200
+    results = resp.json()
+    assert len(results) == 1
+    assert results[0]["title"] == "Login page crashes on Safari"
+
+
+def test_search_matches_description(client, auth_headers, project):
+    """Search also matches against the description field."""
+    _create_issue(
+        client, auth_headers, project["id"],
+        title="Unrelated",
+        description="This is about authentication",
+    )
+    _create_issue(
+        client, auth_headers, project["id"],
+        title="Something else",
+        description="Totally unrelated content",
+    )
+
+    resp = client.get(
+        f"/projects/{project['id']}/issues/search",
+        params={"q": "authentication"},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200
+    results = resp.json()
+    assert len(results) == 1
+    assert results[0]["title"] == "Unrelated"
+
+
+def test_search_no_match_returns_empty_list(client, auth_headers, project):
+    """Search with no matching results returns 200 with an empty list."""
+    _create_issue(client, auth_headers, project["id"], title="Login page crashes on Safari")
+
+    resp = client.get(
+        f"/projects/{project['id']}/issues/search",
+        params={"q": "xyznotfound"},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200
+    assert resp.json() == []
+
+
+def test_search_requires_auth(client, project):
+    """Unauthenticated request to search returns 401."""
+    resp = client.get(
+        f"/projects/{project['id']}/issues/search",
+        params={"q": "login"},
+    )
+    assert resp.status_code == 401
+
+
+def test_search_nonexistent_project_returns_404(client, auth_headers):
+    """Search on a non-existent project returns 404."""
+    resp = client.get(
+        "/projects/99999/issues/search",
+        params={"q": "login"},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 404
+
+
+def test_search_null_description_does_not_crash(client, auth_headers, project):
+    """Issues with null description don't cause errors; title match still works."""
+    # Create an issue with no description (None) — title matches the query
+    resp = client.post(
+        f"/projects/{project['id']}/issues/",
+        json={"title": "Login timeout error", "priority": "medium"},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 201
+
+    # Create another issue with no description whose title does NOT match
+    resp2 = client.post(
+        f"/projects/{project['id']}/issues/",
+        json={"title": "Unrelated issue", "priority": "low"},
+        headers=auth_headers,
+    )
+    assert resp2.status_code == 201
+
+    resp = client.get(
+        f"/projects/{project['id']}/issues/search",
+        params={"q": "timeout"},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200
+    results = resp.json()
+    assert len(results) == 1
+    assert results[0]["title"] == "Login timeout error"
+
+
+def test_search_scoped_to_project(client, auth_headers):
+    """Search results are scoped to the requested project — no cross-project leakage."""
+    # Create project A
+    resp_a = client.post(
+        "/projects/",
+        json={"name": "Project A", "description": "First project"},
+        headers=auth_headers,
+    )
+    assert resp_a.status_code == 201
+    project_a = resp_a.json()
+
+    # Create project B
+    resp_b = client.post(
+        "/projects/",
+        json={"name": "Project B", "description": "Second project"},
+        headers=auth_headers,
+    )
+    assert resp_b.status_code == 201
+    project_b = resp_b.json()
+
+    # Add a matching issue only to project A
+    _create_issue(client, auth_headers, project_a["id"], title="Login bug in project A")
+
+    # Search in project B — should return empty list
+    resp = client.get(
+        f"/projects/{project_b['id']}/issues/search",
+        params={"q": "login"},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200
+    assert resp.json() == []
+
+
+def test_search_non_owner_returns_403(client, auth_headers, project):
+    """A second user searching a project they don't own receives 403."""
+    second_user_headers = _register_and_login(client, "bob@example.com", "bob")
+
+    resp = client.get(
+        f"/projects/{project['id']}/issues/search",
+        params={"q": "login"},
+        headers=second_user_headers,
+    )
+    assert resp.status_code == 403
+
+
+def test_search_missing_q_returns_422(client, auth_headers, project):
+    """Calling the search endpoint with no q param returns 422 (FastAPI validation)."""
+    resp = client.get(
+        f"/projects/{project['id']}/issues/search",
+        headers=auth_headers,
+    )
+    assert resp.status_code == 422
 
 
 # ── updated_at bug ────────────────────────────────────────────────────────────
