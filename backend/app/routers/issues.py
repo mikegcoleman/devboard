@@ -1,6 +1,7 @@
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app import models, schemas
@@ -81,37 +82,34 @@ def list_issues(
 @router.get("/search", response_model=List[schemas.IssueOut])
 def search_issues(
     project_id: int,
-    q: str = Query(..., min_length=1, description="Search query"),
+    q: str = Query(..., min_length=1, max_length=200, description="Search query"),
+    limit: int = Query(100, ge=1, le=200, description="Maximum number of results to return"),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    """
-    TODO: Implement full-text search across issue title and description.
+    """Search issues by title or description (case-insensitive).
 
-    The query parameter `q` should match issues where the title OR description
-    contains the search string (case-insensitive). Consider also supporting
-    ordering results by relevance.
+    Ordered by updated_at DESC (note: updated_at currently has no onupdate hook,
+    so this is effectively created_at DESC until that bug is fixed).
 
-    For now, returns 501 Not Implemented.
+    Known limitation: % and _ in q are not escaped and act as SQL wildcards (v1).
     """
     _get_project_or_404(project_id, db, current_user.id)
 
-    # TODO: replace with real search logic, e.g.:
-    # results = (
-    #     db.query(models.Issue)
-    #     .filter(
-    #         models.Issue.project_id == project_id,
-    #         or_(
-    #             models.Issue.title.ilike(f"%{q}%"),
-    #             models.Issue.description.ilike(f"%{q}%"),
-    #         ),
-    #     )
-    #     .order_by(models.Issue.updated_at.desc())
-    #     .all()
-    # )
-    # return results
-
-    raise HTTPException(status_code=501, detail="Search not yet implemented")
+    results = (
+        db.query(models.Issue)
+        .filter(
+            models.Issue.project_id == project_id,
+            or_(
+                models.Issue.title.ilike(f"%{q}%"),
+                models.Issue.description.ilike(f"%{q}%"),
+            ),
+        )
+        .order_by(models.Issue.updated_at.desc())
+        .limit(limit)
+        .all()
+    )
+    return results
 
 
 # ── Get one ───────────────────────────────────────────────────────────────────

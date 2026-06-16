@@ -75,7 +75,7 @@ export default function ProjectPage() {
       const results = await searchIssues(projectId, searchQuery);
       setSearchResults(results);
     } catch {
-      alert("Search is not yet implemented — complete the TODO in issues.py!");
+      alert("Search failed. Please try again.");
     }
   };
 

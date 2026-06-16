@@ -64,8 +64,8 @@ class Issue(Base):
     __tablename__ = "issues"
 
     id = Column(Integer, primary_key=True, index=True)
-    title = Column(String, nullable=False)
-    description = Column(Text, nullable=True)
+    title = Column(String, nullable=False)  # TODO: add pg_trgm GIN index for ilike search perf on Postgres
+    description = Column(Text, nullable=True)  # TODO: same as above
     status = Column(IssueStatus, default="open", nullable=False)
     priority = Column(IssuePriority, default="medium", nullable=False)
     project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
