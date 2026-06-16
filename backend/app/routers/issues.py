@@ -82,11 +82,18 @@ def list_issues(
 @router.get("/search", response_model=List[schemas.IssueOut])
 def search_issues(
     project_id: int,
-    q: str = Query(..., min_length=1, description="Search query"),
+    q: str = Query(..., min_length=1, max_length=200, description="Search query"),
+    limit: int = Query(100, ge=1, le=200, description="Maximum number of results to return"),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    """Search issues by title or description (case-insensitive)."""
+    """Search issues by title or description (case-insensitive).
+
+    Ordered by updated_at DESC (note: updated_at currently has no onupdate hook,
+    so this is effectively created_at DESC until that bug is fixed).
+
+    Known limitation: % and _ in q are not escaped and act as SQL wildcards (v1).
+    """
     _get_project_or_404(project_id, db, current_user.id)
 
     results = (
@@ -99,6 +106,7 @@ def search_issues(
             ),
         )
         .order_by(models.Issue.updated_at.desc())
+        .limit(limit)
         .all()
     )
     return results

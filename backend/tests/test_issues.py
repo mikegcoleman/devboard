@@ -316,6 +316,23 @@ def test_search_missing_q_returns_422(client, auth_headers, project):
     assert resp.status_code == 422
 
 
+def test_search_wildcard_percent_returns_all(client, auth_headers, project):
+    """
+    Known v1 limitation: unescaped % acts as a SQL wildcard and returns all issues.
+    This test documents the current behaviour so a future escaping fix doesn't silently regress.
+    """
+    _create_issue(client, auth_headers, project["id"], title="Issue One")
+    _create_issue(client, auth_headers, project["id"], title="Issue Two")
+    resp = client.get(
+        f"/projects/{project['id']}/issues/search",
+        params={"q": "%"},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200
+    # % matches everything — documents known wildcard behaviour
+    assert len(resp.json()) == 2
+
+
 # ── updated_at bug ────────────────────────────────────────────────────────────
 
 
